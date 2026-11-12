@@ -5,11 +5,17 @@ function App() {
   const [medicamentos, setMedicamentos] = useState([])
   const [estado, setEstado] = useState('Verificando...')
 
-  // Estados para capturar los datos del formulario
   const [telefono, setTelefono] = useState('')
   const [medicamentoPedir, setMedicamentoPedir] = useState('')
   const [cantidad, setCantidad] = useState(1)
   const [mensajePedido, setMensajePedido] = useState('')
+
+  const cargarMedicamentos = () => {
+    fetch('http://localhost:8000/medicamentos')
+      .then(res => res.json())
+      .then(data => setMedicamentos(data))
+      .catch(err => console.error(err))
+  }
 
   useEffect(() => {
     fetch('http://localhost:8000/health')
@@ -17,15 +23,12 @@ function App() {
       .then(data => setEstado(data.status))
       .catch(err => setEstado('Error de conexion con el servidor'))
 
-    fetch('http://localhost:8000/medicamentos')
-      .then(res => res.json())
-      .then(data => setMedicamentos(data))
-      .catch(err => console.error(err))
+    cargarMedicamentos()
   }, [])
 
-  // Funcion que envia los datos al backend cuando se presiona el boton
   const hacerPedido = (e) => {
-    e.preventDefault() // Evita que la pagina se recargue
+    e.preventDefault()
+    setMensajePedido('Procesando pedido...')
 
     const nuevoPedido = {
       telefono: telefono,
@@ -35,39 +38,46 @@ function App() {
 
     fetch('http://localhost:8000/pedidos', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(nuevoPedido)
     })
-    .then(res => res.json())
-    .then(data => {
-      // Si FastAPI devuelve un error (ej. telefono corto), lo mostramos
-      if (data.detail) {
-        setMensajePedido('Error: ' + data.detail)
-      } else {
-        setMensajePedido(data.mensaje + ' (Orden: ' + data.orden_id + ')')
+    .then(async (res) => {
+      const data = await res.json()
+      if (!res.ok) {
+        let mensajeError = data.detail || data.error || 'Error desconocido al procesar'
+        if (res.status === 429) {
+          mensajeError = '⚠️ Límite de seguridad: Demasiados pedidos muy rápido. Por favor, espera un minuto.'
+        }
+        throw new Error(mensajeError)
       }
+      return data
     })
-    .catch(err => setMensajePedido('Error al conectar al hacer el pedido'))
+    .then(data => {
+      setMensajePedido(`✅ ${data.mensaje} (Orden: ${data.orden_id}). Quedan ${data.stock_restante} en stock.`)
+      cargarMedicamentos()
+      setMedicamentoPedir('')
+      setCantidad(1)
+    })
+    .catch(err => setMensajePedido(err.message))
   }
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial' }}>
-      <h1>FarmaEnCasa - Panel Principal</h1>
-      <p><strong>Estado del Backend:</strong> {estado}</p>
+    <div className="app-container">
+      <h1>FarmaEnCasa</h1>
+      <p className="status-text">Estado del Backend: {estado}</p>
 
       <h2>Catálogo de Medicamentos</h2>
-      <ul>
+      <ul className="med-list">
         {medicamentos.map(med => (
           <li key={med.id}>
-            {med.nombre} - Stock: {med.stock} {med.controlado ? '(Controlado)' : ''}
+            {med.nombre}
+            <span>Stock: {med.stock} {med.es_controlado ? ' (Controlado)' : ''}</span>
           </li>
         ))}
       </ul>
 
       <h2>Crear Nuevo Pedido</h2>
-      <form onSubmit={hacerPedido} style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '300px' }}>
+      <form onSubmit={hacerPedido} className="form-container">
         <input
           type="text"
           placeholder="Teléfono (10 dígitos)"
@@ -75,13 +85,20 @@ function App() {
           onChange={(e) => setTelefono(e.target.value)}
           required
         />
-        <input
-          type="text"
-          placeholder="Nombre del medicamento"
+
+        <select
           value={medicamentoPedir}
           onChange={(e) => setMedicamentoPedir(e.target.value)}
           required
-        />
+        >
+          <option value="" disabled>Selecciona un medicamento...</option>
+          {medicamentos.map(med => (
+            <option key={med.id} value={med.nombre} disabled={med.stock <= 0}>
+              {med.nombre} {med.stock <= 0 ? '(Agotado)' : `(${med.stock} disponibles)`}
+            </option>
+          ))}
+        </select>
+
         <input
           type="number"
           placeholder="Cantidad"
@@ -93,8 +110,19 @@ function App() {
         <button type="submit">Enviar Pedido</button>
       </form>
 
-      {/* Aqui se muestra el resultado del envio */}
-      {mensajePedido && <p style={{ marginTop: '15px' }}><strong>Resultado:</strong> {mensajePedido}</p>}
+      {mensajePedido && (
+        <div style={{
+          marginTop: '20px',
+          padding: '12px',
+          borderRadius: '8px',
+          backgroundColor: mensajePedido.includes('⚠️') ? '#fff3cd' : mensajePedido.includes('✅') ? '#d1e7dd' : '#f8d7da',
+          color: mensajePedido.includes('⚠️') ? '#856404' : mensajePedido.includes('✅') ? '#0f5132' : '#842029',
+          border: '1px solid currentColor',
+          fontSize: '0.95rem'
+        }}>
+          <strong>Resultado:</strong> {mensajePedido}
+        </div>
+      )}
     </div>
   )
 }
