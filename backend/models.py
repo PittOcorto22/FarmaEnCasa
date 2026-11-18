@@ -6,24 +6,27 @@ class Medicamento(Base):
     __tablename__ = "medicamentos"
 
     id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String, index=True)
+    nombre = Column(String, unique=True, index=True)
     precio = Column(Float)
-    stock = Column(Integer, default=0)
+    stock = Column(Integer)
     es_controlado = Column(Boolean, default=False)
 
-    # Relación para saber en qué pedidos está este medicamento
     pedidos = relationship("Pedido", back_populates="medicamento")
-
 
 class Pedido(Base):
     __tablename__ = "pedidos"
 
     id = Column(Integer, primary_key=True, index=True)
-    telefono = Column(String(10), index=True)  # Aquí mantenemos tu regla de los 10 dígitos
-    cantidad = Column(Integer, default=1)
-
-    # Llave foránea para conectar el pedido con el medicamento real
+    telefono = Column(String)
+    cantidad = Column(Integer)
     medicamento_id = Column(Integer, ForeignKey("medicamentos.id"))
 
-    # Relación inversa
     medicamento = relationship("Medicamento", back_populates="pedidos")
+
+# ---- NUEVA TABLA PARA EL LOGIN ----
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
