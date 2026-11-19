@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+
 function App() {
   // ---- ESTADOS GLOBALES ----
   const [vista, setVista] = useState('cliente') // 'cliente', 'login', o 'admin'
@@ -26,22 +28,22 @@ function App() {
   const [nuevoControlado, setNuevoControlado] = useState(false)
   const [mensajeAdmin, setMensajeAdmin] = useState('')
 
+  const cargarMedicamentos = () => {
+    fetch(`${API_URL}/medicamentos`)
+      .then(res => res.json())
+      .then(data => setMedicamentos(data))
+      .catch(err => console.error(err))
+  }
+
   // Cargar datos al inicio
   useEffect(() => {
-    fetch('http://localhost:8000/health')
+    fetch(`${API_URL}/health`)
       .then(res => res.json())
       .then(data => setEstado(data.status))
       .catch(() => setEstado('Error de conexión'))
 
     cargarMedicamentos()
   }, [])
-
-  const cargarMedicamentos = () => {
-    fetch('http://localhost:8000/medicamentos')
-      .then(res => res.json())
-      .then(data => setMedicamentos(data))
-      .catch(err => console.error(err))
-  }
 
   // ==========================================
   //            FUNCIONES DE NEGOCIO
@@ -51,7 +53,7 @@ function App() {
     e.preventDefault()
     setMensajePedido('Procesando pedido...')
 
-    fetch('http://localhost:8000/pedidos', {
+    fetch(`${API_URL}/pedidos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ telefono, medicamento: medicamentoPedir, cantidad: parseInt(cantidad) })
@@ -83,7 +85,7 @@ function App() {
     formData.append('username', username)
     formData.append('password', password)
 
-    fetch('http://localhost:8000/token', {
+    fetch(`${API_URL}/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData
@@ -115,7 +117,7 @@ function App() {
     e.preventDefault()
     setMensajeAdmin('Guardando...')
 
-    fetch('http://localhost:8000/medicamentos', {
+    fetch(`${API_URL}/medicamentos`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

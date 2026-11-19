@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -18,7 +19,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ---- CONFIGURACIÓN DE SEGURIDAD ----
-SECRET_KEY = "llave_secreta_farma_encasa"
+SECRET_KEY = os.getenv("SECRET_KEY", "llave_secreta_farma_encasa")
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -29,10 +30,13 @@ app = FastAPI(title="FarmaEnCasa API", version="1.2.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+allow_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allow_origins,
+    allow_credentials=allow_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -117,6 +121,15 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 #          ENDPOINTS DEL NEGOCIO
 # ==========================================
 
+@app.get("/")
+def root():
+    return {
+        "app": "FarmaEnCasa API",
+        "version": "1.2.0",
+        "health": "/health",
+        "docs": "/docs"
+    }
+
 @app.get("/health")
 def health_check():
     return {"status": "Sistema en linea y funcionando"}
@@ -174,4 +187,5 @@ def crear_pedido(request: Request, pedido: Pedido, db: Session = Depends(get_db)
     }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
