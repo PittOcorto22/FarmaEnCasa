@@ -82,7 +82,7 @@ Control de Acceso (RBAC básico): Solo los usuarios con credenciales válidas (A
 
 [x] Endurecimiento de CORS en producción (`ALLOWED_ORIGINS="https://farma-en-casa.vercel.app"` en `render.yaml`, métodos `GET, POST, PATCH, OPTIONS`, cabeceras `Authorization, Content-Type`) y validación robusta de `VITE_API_URL` / JWT en `frontend/src/App.jsx`.
 
-[x] Módulo completo de gestión de pedidos: modelo `Pedido` extendido con migración segura de columnas existentes, `backend/schemas.py`, `POST /pedidos` con carrito y descuento atómico de stock, endpoints protegidos `GET /pedidos` y `PATCH /pedidos/{pedido_id}`, carrito/checkout en cliente y pestaña "Pedidos Recibidos" en el Panel de Administración.
+[x] Módulo completo de gestión de pedidos: modelo `Pedido` extendido con migración segura de columnas existentes, `backend/schemas.py`, `POST /pedidos` con carrito y descuento atómico de stock, endpoint público `GET /pedidos/rastreo/{telefono}`, endpoints protegidos `GET /pedidos` y `PATCH /pedidos/{pedido_id}`, carrito/checkout con redirección a Seguimiento de Pedido en tiempo real (barra de progreso + polling cada 15s + buscador por teléfono) y pestaña "Pedidos Recibidos" en el Panel de Administración.
 
 6. Siguientes Pasos (Pendientes)
 

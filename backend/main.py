@@ -334,14 +334,33 @@ def crear_pedido(request: Request, pedido: schemas.PedidoCreate, db: Session = D
     db.commit()
     db.refresh(nuevo_pedido)
 
+    pedido_serializado = serializar_pedido(nuevo_pedido)
+
     return {
         "mensaje": "Pedido creado con éxito",
+        "id": nuevo_pedido.id,
         "orden_id": nuevo_pedido.id,
         "total": nuevo_pedido.total,
         "estado": nuevo_pedido.estado,
         "detalle_productos": detalle_lista,
         "stock_restante": primer_med.stock,
+        "pedido": pedido_serializado,
     }
+
+
+@app.get("/pedidos/rastreo/{telefono}", response_model=List[schemas.PedidoOut])
+def rastrear_pedidos_por_telefono(telefono: str, db: Session = Depends(get_db)):
+    telefono_limpio = telefono.strip()
+    if len(telefono_limpio) < 10:
+        raise HTTPException(status_code=400, detail="Ingresa un teléfono válido de al menos 10 dígitos")
+
+    pedidos_db = (
+        db.query(models.Pedido)
+        .filter(models.Pedido.telefono == telefono_limpio)
+        .order_by(models.Pedido.fecha_creacion.desc(), models.Pedido.id.desc())
+        .all()
+    )
+    return [serializar_pedido(p) for p in pedidos_db]
 
 
 @app.get("/pedidos", response_model=List[schemas.PedidoOut], dependencies=[Depends(get_usuario_actual)])

@@ -10,6 +10,16 @@ if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
 }
 
 const ESTADOS_PEDIDO = ['Pendiente', 'En camino', 'Entregado', 'Cancelado']
+const PASOS_PROGRESO = [
+  { key: 'Pendiente', label: 'Pendiente', desc: 'Pedido recibido' },
+  { key: 'En camino', label: 'En camino', desc: 'Repartidor en ruta' },
+  { key: 'Entregado', label: 'Entregado', desc: 'Entregado al cliente' },
+]
+
+function indicePaso(estado) {
+  const idx = PASOS_PROGRESO.findIndex(p => p.key === estado)
+  return idx === -1 ? 0 : idx
+}
 
 function formatearFecha(fechaIso) {
   if (!fechaIso) return 'Sin fecha'
@@ -39,7 +49,7 @@ function claseEstado(estado) {
 
 function App() {
   // ---- ESTADOS GLOBALES ----
-  const [vista, setVista] = useState('cliente') // 'cliente', 'login', o 'admin'
+  const [vista, setVista] = useState('cliente') // 'cliente', 'seguimiento', 'login', o 'admin'
   const [tabAdmin, setTabAdmin] = useState('inventario') // 'inventario' o 'pedidos'
   const [medicamentos, setMedicamentos] = useState([])
   const [estado, setEstado] = useState('Verificando...')
@@ -52,6 +62,18 @@ function App() {
   const [direccion, setDireccion] = useState('')
   const [mensajePedido, setMensajePedido] = useState('')
   const [enviandoPedido, setEnviandoPedido] = useState(false)
+
+  // ---- ESTADOS DE SEGUIMIENTO PARA EL CLIENTE ----
+  const [telefonoBusqueda, setTelefonoBusqueda] = useState(
+    localStorage.getItem('telefono_rastreo') || ''
+  )
+  const [telefonoRastreoActivo, setTelefonoRastreoActivo] = useState(
+    localStorage.getItem('telefono_rastreo') || ''
+  )
+  const [pedidosCliente, setPedidosCliente] = useState([])
+  const [pedidoSeleccionadoId, setPedidoSeleccionadoId] = useState(null)
+  const [mensajeRastreo, setMensajeRastreo] = useState('')
+  const [ultimaActualizacion, setUltimaActualizacion] = useState('')
 
   // ---- ESTADOS DEL LOGIN ----
   const [username, setUsername] = useState('')
@@ -88,6 +110,52 @@ function App() {
       })
       .then(data => setMedicamentos(Array.isArray(data) ? data : []))
       .catch(err => console.error(err))
+  }, [])
+
+  const consultarRastreo = useCallback((tel, idPreferido = null) => {
+    const telLimpio = (tel || '').trim()
+    if (telLimpio.length < 10) {
+      setMensajeRastreo('⚠️ Ingresa un número de teléfono válido de al menos 10 dígitos.')
+      return
+    }
+
+    fetch(`${API_URL}/pedidos/rastreo/${encodeURIComponent(telLimpio)}`, {
+      method: 'GET',
+      mode: 'cors',
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data.detail || `Error al consultar pedidos (${res.status})`)
+        }
+        return data
+      })
+      .then(data => {
+        const lista = Array.isArray(data) ? data : []
+        setPedidosCliente(lista)
+        setTelefonoRastreoActivo(telLimpio)
+        localStorage.setItem('telefono_rastreo', telLimpio)
+        setUltimaActualizacion(
+          new Date().toLocaleTimeString('es-MX', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        )
+
+        if (lista.length === 0) {
+          setPedidoSeleccionadoId(null)
+          setMensajeRastreo(`No se encontraron pedidos registrados para el teléfono ${telLimpio}.`)
+        } else {
+          setMensajeRastreo('')
+          setPedidoSeleccionadoId(prevId => {
+            if (idPreferido && lista.some(p => p.id === idPreferido)) return idPreferido
+            if (prevId && lista.some(p => p.id === prevId)) return prevId
+            return lista[0].id
+          })
+        }
+      })
+      .catch(err => setMensajeRastreo(`❌ ${err.message}`))
   }, [])
 
   const cargarPedidos = useCallback((authToken) => {
@@ -135,6 +203,17 @@ function App() {
       cargarPedidos(token)
     }
   }, [vista, token, cargarPedidos])
+
+  // Polling automático cada 15 segundos en la vista de Seguimiento del Cliente
+  useEffect(() => {
+    if (vista !== 'seguimiento' || telefonoRastreoActivo.length < 10) return undefined
+
+    const intervalo = setInterval(() => {
+      consultarRastreo(telefonoRastreoActivo)
+    }, 15000)
+
+    return () => clearInterval(intervalo)
+  }, [vista, telefonoRastreoActivo, consultarRastreo])
 
   // ==========================================
   //         FUNCIONES DEL CARRITO (CLIENTE)
@@ -188,6 +267,7 @@ function App() {
       return
     }
 
+    const telCompra = telefono.trim()
     setEnviandoPedido(true)
     setMensajePedido('Procesando pedido...')
 
@@ -197,7 +277,7 @@ function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         cliente_nombre: clienteNombre.trim(),
-        telefono: telefono.trim(),
+        telefono: telCompra,
         direccion: direccion.trim(),
         items: carrito.map(item => ({
           medicamento: item.nombre,
@@ -218,17 +298,41 @@ function App() {
         return data
       })
       .then(data => {
-        setMensajePedido(
-          `✅ ${data.mensaje} (#${data.orden_id}). Total: $${Number(data.total).toFixed(2)}.`
-        )
         cargarMedicamentos()
         setCarrito([])
         setClienteNombre('')
         setTelefono('')
         setDireccion('')
+        setMensajePedido('')
+
+        // Redirección automática a Seguimiento de Pedido
+        const pedidoNuevo = data.pedido
+        if (pedidoNuevo) {
+          setPedidosCliente([pedidoNuevo])
+          setPedidoSeleccionadoId(pedidoNuevo.id)
+        }
+        setTelefonoBusqueda(telCompra)
+        setTelefonoRastreoActivo(telCompra)
+        localStorage.setItem('telefono_rastreo', telCompra)
+        setVista('seguimiento')
+        consultarRastreo(telCompra, pedidoNuevo ? pedidoNuevo.id : data.orden_id)
       })
       .catch(err => setMensajePedido(`❌ ${err.message}`))
       .finally(() => setEnviandoPedido(false))
+  }
+
+  const abrirVistaSeguimiento = () => {
+    setVista('seguimiento')
+    const telGuardado = telefonoBusqueda.trim() || telefonoRastreoActivo.trim()
+    if (telGuardado.length >= 10) {
+      consultarRastreo(telGuardado)
+    }
+  }
+
+  const buscarPedidoPorTelefono = (e) => {
+    e.preventDefault()
+    setVista('seguimiento')
+    consultarRastreo(telefonoBusqueda)
   }
 
   // ==========================================
@@ -349,37 +453,76 @@ function App() {
   }
 
   const pedidosPendientes = pedidos.filter(p => p.estado === 'Pendiente').length
+  const pedidoActivo =
+    pedidosCliente.find(p => p.id === pedidoSeleccionadoId) || pedidosCliente[0] || null
 
   // ==========================================
   //                 INTERFAZ
   // ==========================================
 
   return (
-    <div className={`app-container ${vista === 'admin' ? 'admin-wide' : ''}`}>
+    <div
+      className={`app-container ${
+        vista === 'admin' || vista === 'seguimiento' ? 'admin-wide' : ''
+      }`}
+    >
       {/* NAVEGACIÓN SUPERIOR */}
       <div className="top-bar">
         <h1 className="brand-title">FarmaEnCasa</h1>
-        {vista === 'cliente' ? (
-          <button
-            className="btn-nav"
-            onClick={() => setVista(token ? 'admin' : 'login')}
-          >
-            Acceso Empleados
-          </button>
-        ) : (
-          <button
-            className="btn-nav btn-secondary"
-            onClick={vista === 'admin' ? cerrarSesion : () => setVista('cliente')}
-          >
-            {vista === 'admin' ? 'Cerrar Sesión' : 'Volver a Tienda'}
-          </button>
-        )}
+        <div className="nav-actions">
+          {vista === 'cliente' && (
+            <>
+              <button
+                type="button"
+                className="btn-nav btn-track"
+                onClick={abrirVistaSeguimiento}
+              >
+                Rastrear mi pedido
+              </button>
+              <button
+                type="button"
+                className="btn-nav"
+                onClick={() => setVista(token ? 'admin' : 'login')}
+              >
+                Acceso Empleados
+              </button>
+            </>
+          )}
+          {vista !== 'cliente' && (
+            <button
+              type="button"
+              className="btn-nav btn-secondary"
+              onClick={vista === 'admin' ? cerrarSesion : () => setVista('cliente')}
+            >
+              {vista === 'admin' ? 'Cerrar Sesión' : 'Volver a Tienda'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* PANTALLA: CLIENTE */}
       {vista === 'cliente' && (
         <>
           <p className="status-text">Estado del Backend: {estado}</p>
+
+          {/* BUSCADOR RÁPIDO DE RASTREO EN PÁGINA PRINCIPAL */}
+          <form onSubmit={buscarPedidoPorTelefono} className="quick-track-box">
+            <span className="quick-track-label">¿Ya hiciste un pedido?</span>
+            <div className="quick-track-row">
+              <input
+                type="text"
+                placeholder="Ingresa tu teléfono (10 dígitos)"
+                value={telefonoBusqueda}
+                onChange={(e) => setTelefonoBusqueda(e.target.value)}
+                minLength={10}
+                required
+              />
+              <button type="submit" className="btn-track">
+                Rastrear
+              </button>
+            </div>
+          </form>
+
           <h2>Catálogo Público</h2>
           <ul className="med-list">
             {medicamentos.map(med => {
@@ -492,6 +635,165 @@ function App() {
             </div>
           )}
         </>
+      )}
+
+      {/* PANTALLA: SEGUIMIENTO DE PEDIDO (CLIENTE) */}
+      {vista === 'seguimiento' && (
+        <div className="tracking-view">
+          <div className="orders-header">
+            <h2 className="admin-heading" style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
+              Seguimiento de Pedido
+            </h2>
+            {telefonoRastreoActivo.length >= 10 && (
+              <button
+                type="button"
+                className="btn-refresh"
+                onClick={() => consultarRastreo(telefonoRastreoActivo)}
+              >
+                Actualizar estado
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={buscarPedidoPorTelefono} className="quick-track-box" style={{ marginTop: '14px' }}>
+            <span className="quick-track-label">Consulta tus pedidos por teléfono</span>
+            <div className="quick-track-row">
+              <input
+                type="text"
+                placeholder="Teléfono de 10 dígitos"
+                value={telefonoBusqueda}
+                onChange={(e) => setTelefonoBusqueda(e.target.value)}
+                minLength={10}
+                required
+              />
+              <button type="submit" className="btn-track">
+                Buscar
+              </button>
+            </div>
+          </form>
+
+          {ultimaActualizacion && pedidosCliente.length > 0 && (
+            <p className="polling-note">
+              Actualización automática activa cada 15 segundos · Última consulta: {ultimaActualizacion}
+            </p>
+          )}
+
+          {mensajeRastreo && (
+            <div className="empty-hint">
+              <strong>{mensajeRastreo}</strong>
+            </div>
+          )}
+
+          {pedidoActivo && (
+            <div className="order-card tracking-card">
+              <div className="order-card-header">
+                <div>
+                  <span className="order-id">Orden #{pedidoActivo.id}</span>
+                  <span className="order-date">
+                    {formatearFecha(pedidoActivo.fecha_creacion)}
+                  </span>
+                </div>
+                <span className={`status-badge ${claseEstado(pedidoActivo.estado)}`}>
+                  {pedidoActivo.estado}
+                </span>
+              </div>
+
+              {/* BARRA DE PROGRESO VISUAL */}
+              {pedidoActivo.estado === 'Cancelado' ? (
+                <div className="cancelled-banner">
+                  Este pedido fue cancelado. Si tienes dudas, contáctanos.
+                </div>
+              ) : (
+                <div className="progress-stepper">
+                  {PASOS_PROGRESO.map((paso, index) => {
+                    const pasoActual = indicePaso(pedidoActivo.estado)
+                    const completado = index <= pasoActual
+                    const activo = index === pasoActual
+                    return (
+                      <div
+                        key={paso.key}
+                        className={`progress-step ${completado ? 'completed' : ''} ${
+                          activo ? 'current' : ''
+                        }`}
+                      >
+                        <div className="step-circle">{completado ? '✓' : index + 1}</div>
+                        <div className="step-label">{paso.label}</div>
+                        <div className="step-desc">{paso.desc}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <div className="order-client-info">
+                <div>
+                  <strong>Cliente:</strong> {pedidoActivo.cliente_nombre}
+                </div>
+                <div>
+                  <strong>Teléfono:</strong> {pedidoActivo.telefono}
+                </div>
+                <div>
+                  <strong>Dirección:</strong> {pedidoActivo.direccion}
+                </div>
+              </div>
+
+              <div className="order-items-box">
+                <strong>Resumen de tu compra:</strong>
+                <ul>
+                  {(pedidoActivo.detalle_productos || []).map((item, idx) => (
+                    <li key={`${pedidoActivo.id}-${idx}`}>
+                      <span>
+                        {item.cantidad}x {item.nombre}
+                      </span>
+                      <span>${Number(item.subtotal).toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="order-card-footer">
+                <div className="order-total">
+                  Total pagado: <strong>${Number(pedidoActivo.total).toFixed(2)}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="btn-refresh"
+                  onClick={() => consultarRastreo(telefonoRastreoActivo, pedidoActivo.id)}
+                >
+                  Actualizar estado
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* HISTORIAL DE PEDIDOS DEL TELÉFONO */}
+          {pedidosCliente.length > 1 && (
+            <div className="history-section">
+              <h3>Historial de tus pedidos ({pedidosCliente.length})</h3>
+              <div className="history-list">
+                {pedidosCliente.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`history-item ${
+                      pedidoActivo && pedidoActivo.id === p.id ? 'selected' : ''
+                    }`}
+                    onClick={() => setPedidoSeleccionadoId(p.id)}
+                  >
+                    <div>
+                      <strong>Orden #{p.id}</strong>
+                      <span className="history-date">{formatearFecha(p.fecha_creacion)}</span>
+                    </div>
+                    <div className="history-right">
+                      <span>${Number(p.total).toFixed(2)}</span>
+                      <span className={`status-badge ${claseEstado(p.estado)}`}>{p.estado}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* PANTALLA: LOGIN DE EMPLEADOS */}
