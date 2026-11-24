@@ -1,7 +1,13 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
-const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+  .trim()
+  .replace(/\/+$/, '')
+
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
+  console.error('VITE_API_URL no está configurada en Vercel.')
+}
 
 function App() {
   // ---- ESTADOS GLOBALES ----
@@ -30,8 +36,11 @@ function App() {
 
   const cargarMedicamentos = () => {
     fetch(`${API_URL}/medicamentos`)
-      .then(res => res.json())
-      .then(data => setMedicamentos(data))
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Error al cargar catálogo')
+        return res.json()
+      })
+      .then(data => setMedicamentos(Array.isArray(data) ? data : []))
       .catch(err => console.error(err))
   }
 
@@ -115,29 +124,34 @@ function App() {
 
   const agregarMedicamento = (e) => {
     e.preventDefault()
+    if (!token) {
+      cerrarSesion()
+      return
+    }
     setMensajeAdmin('Guardando...')
 
     fetch(`${API_URL}/medicamentos`, {
       method: 'POST',
+      mode: 'cors',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}` // <--- ¡AQUÍ MANDAMOS EL CANDADO (TOKEN)!
       },
       body: JSON.stringify({
-        nombre: nuevoNombre,
+        nombre: nuevoNombre.trim(),
         precio: parseFloat(nuevoPrecio),
-        stock: parseInt(nuevoStock),
+        stock: parseInt(nuevoStock, 10),
         es_controlado: nuevoControlado
       })
     })
     .then(async (res) => {
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         if (res.status === 401) {
           cerrarSesion() // Si el token expiró, lo sacamos
           throw new Error('Sesión expirada. Vuelve a iniciar sesión.')
         }
-        throw new Error(data.detail)
+        throw new Error(data.detail || `Error del servidor (${res.status})`)
       }
       return data
     })

@@ -6,17 +6,19 @@ FarmaEnCasa es una aplicación web multiplataforma (Cliente/Servidor) diseñada 
 
 2. Arquitectura y Stack Tecnológico
 
-El proyecto utiliza una arquitectura de Cliente-Servidor (Frontend-Backend separados):
+El proyecto utiliza una arquitectura de Cliente-Servidor (Frontend-Backend separados), actualmente desplegada en la nube:
 
-Backend (API REST)
+Backend (API REST - Desplegado en Render)
 
-Framework: FastAPI (Python)
+Framework: FastAPI (Python 3.11.11 en Render mediante render.yaml)
 
-Servidor ASGI: Uvicorn
+Servidor ASGI: Uvicorn (puerto dinámico vía variable de entorno PORT)
 
-Base de Datos: SQLite (Implementación local actual)
+Base de Datos: PostgreSQL en producción (vía `DATABASE_URL` y driver `psycopg2-binary`, con `pool_pre_ping=True` y `pool_recycle=300`) y SQLite (`farma.db`) como respaldo automático en desarrollo local. `database.py` convierte automáticamente `postgres://` a `postgresql://`.
 
 ORM: SQLAlchemy
+
+Configuración por entorno: SECRET_KEY, ALLOWED_ORIGINS (CORS dinámico), DATABASE_URL y PORT (plantilla en backend/.env.example).
 
 Seguridad:
 
@@ -26,13 +28,13 @@ passlib y bcrypt (v3.2.2) para el hashing y salting de contraseñas.
 
 slowapi para la prevención de ataques de fuerza bruta y Rate Limiting.
 
-Frontend (SPA - Single Page Application)
+Frontend (SPA - Single Page Application - Desplegado en Vercel)
 
-Librería/Framework: React.js
+Librería/Framework: React.js (v19)
 
-Herramienta de Construcción: Vite
+Herramienta de Construcción: Vite (Root Directory: frontend)
 
-Peticiones HTTP: fetch API nativa con manejo de Headers para autenticación (Bearer Token).
+Peticiones HTTP: fetch API nativa con manejo de Headers para autenticación (Bearer Token) y URL del backend configurable mediante VITE_API_URL (plantilla en frontend/.env.example).
 
 3. Modelo de Base de Datos (Relacional)
 
@@ -56,9 +58,9 @@ Control de Acceso (RBAC básico): Solo los usuarios con credenciales válidas (A
 
 5. Estado Actual del Proyecto (Lo que ya está hecho)
 
-[x] Diseño e implementación de la API REST en FastAPI.
+[x] Diseño e implementación de la API REST en FastAPI (incluyendo endpoints /, /health, /seed, /crear-admin, /token, /medicamentos y /pedidos).
 
-[x] Conexión funcional con SQLite mediante SQLAlchemy.
+[x] Conexión funcional con SQLite mediante SQLAlchemy y preparación de database.py para leer DATABASE_URL (listo para PostgreSQL).
 
 [x] Integración de dependencias de seguridad y encriptación.
 
@@ -72,10 +74,16 @@ Control de Acceso (RBAC básico): Solo los usuarios con credenciales válidas (A
 
 [x] Limpieza y optimización del archivo requirements.txt para garantizar instalaciones rápidas en otros entornos.
 
+[x] Configuración de despliegue y variables de entorno: render.yaml, .gitignore raíz, backend/.env.example, frontend/.env.example, CORS y SECRET_KEY configurables, y VITE_API_URL en frontend.
+
+[x] Despliegue (Deployment) completado y verificado en producción: Backend corriendo en Render y Frontend en Vercel comunicándose correctamente (commit 7de08e9 en origin/main).
+
+[x] Preparación completa para PostgreSQL en la nube (`psycopg2-binary` en `backend/requirements.txt`, `pool_pre_ping=True` y `pool_recycle=300` en `backend/database.py`) manteniendo compatibilidad local con SQLite.
+
+[x] Endurecimiento de CORS en producción (`ALLOWED_ORIGINS="https://farma-en-casa.vercel.app"` en `render.yaml`, métodos `GET, POST, OPTIONS`, cabeceras `Authorization, Content-Type`) y validación robusta de `VITE_API_URL` / JWT en `frontend/src/App.jsx`.
+
 6. Siguientes Pasos (Pendientes)
 
-Migración de Base de Datos a la Nube: Transición de SQLite (local) a un motor de base de datos relacional centralizado en la nube (ej. PostgreSQL), para que todos los clientes vean el mismo inventario en tiempo real.
+1. Despliegue de PostgreSQL en Render: Subir estos cambios (`git push`), crear la instancia de PostgreSQL en Render, configurar `DATABASE_URL` (Internal Database URL) y `ALLOWED_ORIGINS=https://farma-en-casa.vercel.app` en las variables de entorno del Web Service, e inicializar `/crear-admin` y `/seed`.
 
-Despliegue (Deployment): Subir el código de producción a servidores en la nube (ej. Render para el backend, Vercel para el frontend).
-
-Documentación Adicional: Generación de diagramas de arquitectura, modelo relacional (ER) y manuales de usuario para el reporte académico final.
+2. Documentación Adicional: Generación de diagramas de arquitectura, modelo relacional (ER) y manuales de usuario para el reporte académico final.

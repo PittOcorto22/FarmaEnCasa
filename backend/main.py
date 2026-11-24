@@ -30,15 +30,20 @@ app = FastAPI(title="FarmaEnCasa API", version="1.2.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
-allow_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+# Por defecto solo permite Vite local; en producción definir ALLOWED_ORIGINS en Render
+raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+allow_origins = [
+    origin.strip().rstrip("/")
+    for origin in raw_origins.split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
-    allow_credentials=allow_origins != ["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 models.Base.metadata.create_all(bind=engine)
