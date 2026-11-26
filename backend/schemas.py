@@ -37,9 +37,21 @@ class DetalleProductoPedido(BaseModel):
     subtotal: float
 
 
+class SolicitudCodigoPedido(BaseModel):
+    cliente_nombre: str = Field(..., min_length=2)
+    telefono: str = Field(..., min_length=10)
+    correo: str = Field(..., min_length=5)
+    direccion: str = Field(..., min_length=4)
+    items: Optional[List[ItemPedido]] = None
+    medicamento: Optional[str] = None
+    cantidad: Optional[int] = Field(default=None, ge=1)
+
+
 class PedidoCreate(BaseModel):
     cliente_nombre: str = Field(..., min_length=2)
     telefono: str = Field(..., min_length=10)
+    correo: str = Field(..., min_length=5)
+    codigo_verificacion: str = Field(..., min_length=6, max_length=6)
     direccion: str = Field(..., min_length=4)
     items: Optional[List[ItemPedido]] = None
     # Compatibilidad con peticiones simples de un solo medicamento
@@ -58,6 +70,7 @@ class PedidoOut(BaseModel):
     id: int
     cliente_nombre: str
     telefono: str
+    correo: str = ""
     direccion: str
     detalle_productos: List[DetalleProductoPedido]
     total: float

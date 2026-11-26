@@ -130,7 +130,13 @@ function App() {
   const [carrito, setCarrito] = useState([])
   const [clienteNombre, setClienteNombre] = useState('')
   const [telefono, setTelefono] = useState('')
+  const [correoCliente, setCorreoCliente] = useState('')
   const [direccion, setDireccion] = useState('')
+  const [pasoCheckout, setPasoCheckout] = useState('datos') // 'datos' | 'verificar'
+  const [codigoVerificacion, setCodigoVerificacion] = useState('')
+  const [codigoDemo, setCodigoDemo] = useState('')
+  const [enviandoCodigo, setEnviandoCodigo] = useState(false)
+  const [segundosReenvio, setSegundosReenvio] = useState(0)
   const [mensajePedido, setMensajePedido] = useState('')
   const [enviandoPedido, setEnviandoPedido] = useState(false)
 
@@ -295,6 +301,15 @@ function App() {
     return () => clearInterval(intervalo)
   }, [vista, telefonoRastreoActivo, consultarRastreo])
 
+  // Temporizador para reenvío de código OTP por correo
+  useEffect(() => {
+    if (segundosReenvio <= 0) return undefined
+    const timer = setInterval(() => {
+      setSegundosReenvio(prev => (prev > 1 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [segundosReenvio])
+
   // ==========================================
   //         NAVEGACIÓN Y FILTRADO
   // ==========================================
@@ -410,6 +425,54 @@ function App() {
   const faltaEnvioGratis = Math.max(0, ENVIO_GRATIS_MINIMO - totalCarrito)
   const progresoEnvio = Math.min(100, (totalCarrito / ENVIO_GRATIS_MINIMO) * 100)
 
+  const solicitarCodigoCorreo = (e) => {
+    if (e) e.preventDefault()
+    if (carrito.length === 0) {
+      setMensajePedido('⚠️ Agrega al menos un producto al carrito antes de continuar.')
+      return
+    }
+
+    setEnviandoCodigo(true)
+    setMensajePedido('Enviando código de seguridad a tu correo...')
+
+    fetch(`${API_URL}/pedidos/enviar-codigo`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cliente_nombre: clienteNombre.trim(),
+        telefono: telefono.trim(),
+        correo: correoCliente.trim(),
+        direccion: direccion.trim(),
+        items: carrito.map(item => ({
+          medicamento: item.nombre,
+          cantidad: item.cantidad,
+        })),
+      }),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          let errorMsg = data.detail || data.error || `Error al enviar código (${res.status})`
+          if (Array.isArray(data.detail)) {
+            errorMsg = data.detail.map(d => d.msg).join(', ')
+          }
+          if (res.status === 429) errorMsg = '⚠️ Demasiadas solicitudes. Espera un minuto.'
+          throw new Error(errorMsg)
+        }
+        return data
+      })
+      .then(data => {
+        setPasoCheckout('verificar')
+        setCodigoVerificacion('')
+        setCodigoDemo(data.modo_demo && data.codigo_demo ? data.codigo_demo : '')
+        setSegundosReenvio(30)
+        setMensajePedido(`✅ ${data.mensaje}`)
+      })
+      .catch(err => setMensajePedido(`❌ ${err.message}`))
+      .finally(() => setEnviandoCodigo(false))
+  }
+
   const hacerPedido = (e) => {
     e.preventDefault()
     if (carrito.length === 0) {
@@ -417,9 +480,15 @@ function App() {
       return
     }
 
+    const codigoLimpio = codigoVerificacion.trim()
+    if (!/^\d{6}$/.test(codigoLimpio)) {
+      setMensajePedido('⚠️ Ingresa el código de 6 dígitos que llegó a tu correo.')
+      return
+    }
+
     const telCompra = telefono.trim()
     setEnviandoPedido(true)
-    setMensajePedido('Procesando pedido...')
+    setMensajePedido('Verificando código y confirmando pedido...')
 
     fetch(`${API_URL}/pedidos`, {
       method: 'POST',
@@ -428,6 +497,8 @@ function App() {
       body: JSON.stringify({
         cliente_nombre: clienteNombre.trim(),
         telefono: telCompra,
+        correo: correoCliente.trim(),
+        codigo_verificacion: codigoLimpio,
         direccion: direccion.trim(),
         items: carrito.map(item => ({
           medicamento: item.nombre,
@@ -452,7 +523,12 @@ function App() {
         setCarrito([])
         setClienteNombre('')
         setTelefono('')
+        setCorreoCliente('')
         setDireccion('')
+        setPasoCheckout('datos')
+        setCodigoVerificacion('')
+        setCodigoDemo('')
+        setSegundosReenvio(0)
         setMensajePedido('')
         setCarritoAbierto(false)
 
@@ -1295,8 +1371,8 @@ function App() {
                     <h3>¿Cómo funciona tu pedido en línea?</h3>
                     <ul>
                       <li>Selecciona los medicamentos y productos que necesitas y agrégalos al carrito.</li>
-                      <li>Completa tu nombre, teléfono de 10 dígitos y dirección exacta de entrega.</li>
-                      <li>Tu stock se aparta al instante y puedes seguir el estado de entrega en tiempo real.</li>
+                      <li>Completa tu nombre, teléfono, correo electrónico y dirección de entrega.</li>
+                      <li>Ingresa el código de seguridad de 6 dígitos que enviamos a tu correo para confirmar tu orden y rastrearla en tiempo real.</li>
                     </ul>
                   </div>
 
@@ -1434,6 +1510,11 @@ function App() {
                       <div>
                         <strong>Teléfono:</strong> {pedidoActivo.telefono}
                       </div>
+                      {pedidoActivo.correo && (
+                        <div>
+                          <strong>Correo verificado:</strong> {pedidoActivo.correo}
+                        </div>
+                      )}
                       <div>
                         <strong>Dirección:</strong> {pedidoActivo.direccion}
                       </div>
@@ -1783,6 +1864,11 @@ function App() {
                               <div>
                                 <strong>Teléfono:</strong> {pedido.telefono}
                               </div>
+                              {pedido.correo && (
+                                <div>
+                                  <strong>Correo:</strong> {pedido.correo}
+                                </div>
+                              )}
                               <div>
                                 <strong>Dirección:</strong> {pedido.direccion}
                               </div>
@@ -2049,40 +2135,127 @@ function App() {
                     </div>
                   </div>
 
-                  <h3 className="checkout-title">Datos de entrega a domicilio</h3>
-                  <form onSubmit={hacerPedido} className="form-container">
-                    <input
-                      type="text"
-                      placeholder="Nombre completo de quien recibe"
-                      value={clienteNombre}
-                      onChange={(e) => setClienteNombre(e.target.value)}
-                      required
-                    />
-                    <input
-                      type="text"
-                      placeholder="Teléfono de contacto (10 dígitos)"
-                      value={telefono}
-                      onChange={(e) => setTelefono(e.target.value)}
-                      minLength={10}
-                      required
-                    />
-                    <input
-                      type="text"
-                      placeholder="Dirección completa (Calle, número, colonia y referencias)"
-                      value={direccion}
-                      onChange={(e) => setDireccion(e.target.value)}
-                      required
-                    />
-                    <button
-                      type="submit"
-                      className="btn-emerald"
-                      disabled={enviandoPedido || carrito.length === 0}
-                    >
-                      {enviandoPedido
-                        ? 'Procesando pedido...'
-                        : `Confirmar Pedido ($${totalCarrito.toFixed(2)} MXN)`}
-                    </button>
-                  </form>
+                  <div className="checkout-steps-indicator">
+                    <span className={pasoCheckout === 'datos' ? 'active' : 'done'}>
+                      1. Datos y correo
+                    </span>
+                    <span className={pasoCheckout === 'verificar' ? 'active' : ''}>
+                      2. Código de seguridad
+                    </span>
+                  </div>
+
+                  {pasoCheckout === 'datos' ? (
+                    <>
+                      <h3 className="checkout-title">Datos de entrega y confirmación</h3>
+                      <form onSubmit={solicitarCodigoCorreo} className="form-container">
+                        <input
+                          type="text"
+                          placeholder="Nombre completo de quien recibe"
+                          value={clienteNombre}
+                          onChange={(e) => setClienteNombre(e.target.value)}
+                          required
+                        />
+                        <input
+                          type="text"
+                          placeholder="Teléfono de contacto (10 dígitos)"
+                          value={telefono}
+                          onChange={(e) => setTelefono(e.target.value)}
+                          minLength={10}
+                          required
+                        />
+                        <input
+                          type="email"
+                          placeholder="Correo electrónico (para código de confirmación)"
+                          value={correoCliente}
+                          onChange={(e) => setCorreoCliente(e.target.value)}
+                          required
+                        />
+                        <input
+                          type="text"
+                          placeholder="Dirección completa (Calle, número, colonia y referencias)"
+                          value={direccion}
+                          onChange={(e) => setDireccion(e.target.value)}
+                          required
+                        />
+                        <button
+                          type="submit"
+                          className="btn-primary"
+                          disabled={enviandoCodigo || carrito.length === 0}
+                        >
+                          {enviandoCodigo
+                            ? 'Enviando código al correo...'
+                            : 'Enviar código de confirmación al correo'}
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <div className="otp-verify-box">
+                      <h3 className="checkout-title" style={{ marginTop: 0 }}>
+                        Confirma tu pedido con el código
+                      </h3>
+                      <p className="otp-helper-text">
+                        Ingresa el código de <strong>6 dígitos</strong> enviado a{' '}
+                        <strong>{correoCliente}</strong> (válido por 5 minutos).
+                      </p>
+
+                      {codigoDemo && (
+                        <div className="otp-demo-alert">
+                          <strong>Modo demostración activo:</strong> aún no hay proveedor de correo configurado en el servidor. Tu código de prueba es{' '}
+                          <span className="otp-demo-code">{codigoDemo}</span>
+                        </div>
+                      )}
+
+                      <form onSubmit={hacerPedido} className="form-container">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="\d{6}"
+                          maxLength={6}
+                          className="otp-code-input"
+                          placeholder="000000"
+                          value={codigoVerificacion}
+                          onChange={(e) =>
+                            setCodigoVerificacion(e.target.value.replace(/\D/g, '').slice(0, 6))
+                          }
+                          required
+                        />
+                        <button
+                          type="submit"
+                          className="btn-emerald"
+                          disabled={enviandoPedido || codigoVerificacion.length !== 6}
+                        >
+                          {enviandoPedido
+                            ? 'Verificando y confirmando...'
+                            : `Verificar y Confirmar Pedido ($${totalCarrito.toFixed(2)} MXN)`}
+                        </button>
+                      </form>
+
+                      <div className="otp-actions-row">
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={enviandoCodigo || segundosReenvio > 0}
+                          onClick={solicitarCodigoCorreo}
+                        >
+                          {segundosReenvio > 0
+                            ? `Reenviar en ${segundosReenvio}s`
+                            : 'Reenviar código'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setPasoCheckout('datos')
+                            setCodigoVerificacion('')
+                            setCodigoDemo('')
+                            setMensajePedido('')
+                          }}
+                        >
+                          Editar datos
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {mensajePedido && (
                     <div

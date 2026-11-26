@@ -1579,7 +1579,96 @@
   font-size: 0.98rem;
   font-weight: 800;
   color: var(--pharma-navy);
-  margin: 16px 0 10px 0;
+  margin: 14px 0 10px 0;
+}
+
+.checkout-steps-indicator {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.checkout-steps-indicator span {
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background-color: #f1f5f9;
+  color: var(--text-soft);
+  border: 1px solid var(--border-light);
+}
+
+.checkout-steps-indicator span.active {
+  background-color: var(--pharma-sky);
+  color: var(--pharma-blue);
+  border-color: var(--pharma-blue);
+}
+
+.checkout-steps-indicator span.done {
+  background-color: var(--pharma-green-soft);
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.otp-verify-box {
+  background-color: #f8fafc;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.otp-helper-text {
+  margin: 0 0 12px 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.otp-demo-alert {
+  background-color: var(--pharma-amber-soft);
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+
+.otp-demo-code {
+  display: inline-block;
+  font-family: 'Plus Jakarta Sans', monospace;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  background-color: #ffffff;
+  color: var(--pharma-navy);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #f59e0b;
+  margin-left: 4px;
+}
+
+.otp-code-input {
+  text-align: center;
+  font-family: 'Plus Jakarta Sans', monospace;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  padding: 12px 14px;
+  color: var(--pharma-navy);
+}
+
+.otp-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.otp-actions-row button {
+  flex: 1;
 }
 
 /* Barra flotante de carrito cuando hay artículos */

@@ -1,7 +1,16 @@
+import hashlib
+import hmac
+import html
 import json
 import os
+import re
+import secrets
+import smtplib
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
-from typing import List
+from email.message import EmailMessage
+from typing import List, Tuple
 
 import jwt
 import uvicorn
@@ -63,6 +72,7 @@ def asegurar_columnas_pedidos():
 
     columnas_requeridas = [
         ("cliente_nombre", "VARCHAR DEFAULT 'Cliente'"),
+        ("correo", "VARCHAR DEFAULT ''"),
         ("direccion", "VARCHAR DEFAULT 'Sin dirección'"),
         ("detalle_productos", "TEXT DEFAULT '[]'"),
         ("total", "FLOAT DEFAULT 0.0"),
@@ -519,12 +529,260 @@ def serializar_pedido(pedido_db: models.Pedido) -> schemas.PedidoOut:
         id=pedido_db.id,
         cliente_nombre=pedido_db.cliente_nombre or "Cliente",
         telefono=pedido_db.telefono,
+        correo=pedido_db.correo or "",
         direccion=pedido_db.direccion or "Sin dirección",
         detalle_productos=[schemas.DetalleProductoPedido(**item) for item in detalle_lista],
         total=total,
         estado=pedido_db.estado or "Pendiente",
         fecha_creacion=pedido_db.fecha_creacion,
     )
+
+
+# ==========================================
+#   VERIFICACIÓN DE PEDIDO POR CORREO (OTP)
+# ==========================================
+
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+OTP_EXPIRACION_MINUTOS = 5
+OTP_MAX_INTENTOS = 5
+
+
+def normalizar_correo(correo: str) -> str:
+    return (correo or "").strip().lower()
+
+
+def validar_correo_formato(correo: str) -> str:
+    limpio = normalizar_correo(correo)
+    if not EMAIL_REGEX.match(limpio):
+        raise HTTPException(status_code=400, detail="Ingresa un correo electrónico válido")
+    return limpio
+
+
+def hash_codigo_otp(correo: str, telefono: str, codigo: str) -> str:
+    mensaje = f"{normalizar_correo(correo)}|{telefono.strip()}|{codigo.strip()}".encode("utf-8")
+    return hmac.new(SECRET_KEY.encode("utf-8"), mensaje, hashlib.sha256).hexdigest()
+
+
+def construir_html_codigo(cliente_nombre: str, codigo: str, total_estimado: float, items_resumen: List[Tuple[str, int]]) -> str:
+    nombre_seguro = html.escape(cliente_nombre)
+    filas = "".join(
+        f"<li style='margin-bottom:4px;'>{cant}x {html.escape(nombre)}</li>"
+        for nombre, cant in items_resumen
+    )
+    return f"""
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 520px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; background: #ffffff;">
+      <div style="background: #0a2259; color: #ffffff; padding: 22px 26px;">
+        <h1 style="margin: 0; font-size: 22px; letter-spacing: -0.3px;">Farma<span style="color:#f87171;">EnCasa</span></h1>
+        <p style="margin: 4px 0 0 0; font-size: 13px; color: #cbd5e1;">Confirmación de seguridad para tu pedido</p>
+      </div>
+      <div style="padding: 26px; color: #0f172a;">
+        <p style="margin-top: 0; font-size: 15px;">Hola <strong>{nombre_seguro}</strong>,</p>
+        <p style="font-size: 14px; color: #475569; line-height: 1.5;">
+          Ingresa el siguiente código de seguridad en FarmaEnCasa para confirmar tu pedido:
+        </p>
+        <div style="margin: 22px 0; padding: 18px; background: #e8f1ff; border: 2px dashed #0047ab; border-radius: 12px; text-align: center;">
+          <span style="font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #0a2259;">{codigo}</span>
+        </div>
+        <p style="font-size: 13px; color: #64748b; text-align: center; margin-top: 0;">
+          Este código vence en <strong>{OTP_EXPIRACION_MINUTOS} minutos</strong>. No lo compartas con nadie.
+        </p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-top: 18px; font-size: 13px; color: #334155;">
+          <strong>Resumen de tu pedido (${total_estimado:.2f} MXN):</strong>
+          <ul style="margin: 8px 0 0 0; padding-left: 18px;">{filas}</ul>
+        </div>
+      </div>
+      <div style="background: #f1f5f9; padding: 14px 26px; font-size: 12px; color: #64748b; text-align: center;">
+        Si no solicitaste este pedido, puedes ignorar este correo de forma segura.
+      </div>
+    </div>
+    """
+
+
+def enviar_correo_codigo(
+    destinatario: str,
+    cliente_nombre: str,
+    codigo: str,
+    total_estimado: float,
+    items_resumen: List[Tuple[str, int]],
+) -> Tuple[str, bool]:
+    """
+    Envía el código OTP usando Brevo API (HTTPS), Resend API (HTTPS) o SMTP.
+    Si no hay credenciales configuradas en el servidor, opera en modo demo
+    retornando ('demo', True) para permitir pruebas locales/escolares sin bloqueo.
+    """
+    asunto = f"Código de confirmación FarmaEnCasa: {codigo}"
+    texto_plano = (
+        f"Hola {cliente_nombre},\n\n"
+        f"Tu código de seguridad para confirmar tu pedido en FarmaEnCasa es: {codigo}\n"
+        f"Total estimado: ${total_estimado:.2f} MXN\n"
+        f"Este código expira en {OTP_EXPIRACION_MINUTOS} minutos.\n"
+    )
+    contenido_html = construir_html_codigo(cliente_nombre, codigo, total_estimado, items_resumen)
+
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    mail_from = os.getenv("MAIL_FROM", "").strip() or smtp_user
+    mail_from_name = os.getenv("MAIL_FROM_NAME", "FarmaEnCasa").strip() or "FarmaEnCasa"
+
+    # 1. Brevo REST API (HTTPS 443 — recomendado para Render Free)
+    if brevo_key:
+        if not mail_from:
+            raise HTTPException(
+                status_code=500,
+                detail="Falta configurar MAIL_FROM con el correo remitente verificado en Brevo.",
+            )
+        payload = json.dumps(
+            {
+                "sender": {"name": mail_from_name, "email": mail_from},
+                "to": [{"email": destinatario, "name": cliente_nombre}],
+                "subject": asunto,
+                "htmlContent": contenido_html,
+                "textContent": texto_plano,
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=payload,
+            headers={
+                "accept": "application/json",
+                "api-key": brevo_key,
+                "content-type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if resp.status >= 400:
+                    raise HTTPException(status_code=502, detail="Error al enviar correo con Brevo")
+            return "brevo", False
+        except urllib.error.HTTPError as exc:
+            detalle = exc.read().decode("utf-8", errors="ignore")
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo enviar el correo (Brevo {exc.code}): {detalle[:160]}",
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Error de conexión con Brevo al enviar el correo: {exc}",
+            )
+
+    # 2. Resend REST API (HTTPS 443)
+    if resend_key:
+        remitente_resend = f"{mail_from_name} <{mail_from or 'onboarding@resend.dev'}>"
+        payload = json.dumps(
+            {
+                "from": remitente_resend,
+                "to": [destinatario],
+                "subject": asunto,
+                "html": contenido_html,
+                "text": texto_plano,
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {resend_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if resp.status >= 400:
+                    raise HTTPException(status_code=502, detail="Error al enviar correo con Resend")
+            return "resend", False
+        except urllib.error.HTTPError as exc:
+            detalle = exc.read().decode("utf-8", errors="ignore")
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo enviar el correo (Resend {exc.code}): {detalle[:160]}",
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Error de conexión con Resend al enviar el correo: {exc}",
+            )
+
+    # 3. SMTP clásico (ej. Gmail con Contraseña de Aplicación)
+    if smtp_user and smtp_password:
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+        smtp_port = int(os.getenv("SMTP_PORT", "587").strip() or "587")
+        msg = EmailMessage()
+        msg["Subject"] = asunto
+        msg["From"] = f"{mail_from_name} <{mail_from}>"
+        msg["To"] = destinatario
+        msg.set_content(texto_plano)
+        msg.add_alternative(contenido_html, subtype="html")
+        try:
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12) as server:
+                    server.login(smtp_user, smtp_password)
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.login(smtp_user, smtp_password)
+                    server.send_message(msg)
+            return "smtp", False
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo enviar el correo por SMTP: {exc}",
+            )
+
+    # 4. Respaldo si aún no se configuran variables de correo en Render/local
+    print(f"[FarmaEnCasa OTP DEMO] Correo: {destinatario} | Código: {codigo}")
+    return "demo", True
+
+
+def validar_items_y_stock(items_input, medicamento_unico, cantidad_unica, db: Session):
+    items_solicitados = list(items_input or [])
+    if not items_solicitados and medicamento_unico and cantidad_unica:
+        items_solicitados = [
+            schemas.ItemPedido(medicamento=medicamento_unico, cantidad=cantidad_unica)
+        ]
+
+    if not items_solicitados:
+        raise HTTPException(
+            status_code=400, detail="Debes incluir al menos un medicamento en el pedido"
+        )
+
+    cantidades_por_nombre = {}
+    for item in items_solicitados:
+        nombre_limpio = item.medicamento.strip()
+        if not nombre_limpio or item.cantidad <= 0:
+            raise HTTPException(status_code=400, detail="Producto o cantidad inválidos")
+        cantidades_por_nombre[nombre_limpio] = (
+            cantidades_por_nombre.get(nombre_limpio, 0) + item.cantidad
+        )
+
+    medicamentos_validados = []
+    total_estimado = 0.0
+    for nombre_med, cant_total in cantidades_por_nombre.items():
+        medicina_db = (
+            db.query(models.Medicamento)
+            .filter(models.Medicamento.nombre == nombre_med)
+            .first()
+        )
+        if not medicina_db:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Medicamento '{nombre_med}' no encontrado en el catálogo",
+            )
+        if medicina_db.stock < cant_total:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Stock insuficiente para {medicina_db.nombre} (disponibles: {medicina_db.stock})",
+            )
+        medicamentos_validados.append((medicina_db, cant_total))
+        total_estimado = round(total_estimado + float(medicina_db.precio) * cant_total, 2)
+
+    return medicamentos_validados, total_estimado
 
 
 # ==========================================
@@ -651,12 +909,17 @@ def llenar_base_de_datos(db: Session = Depends(get_db)):
 
 
 # ---- ENDPOINTS DE PEDIDOS ----
-@app.post("/pedidos")
+@app.post("/pedidos/enviar-codigo")
 @limiter.limit("5/minute")
-def crear_pedido(request: Request, pedido: schemas.PedidoCreate, db: Session = Depends(get_db)):
-    cliente_nombre = pedido.cliente_nombre.strip()
-    telefono = pedido.telefono.strip()
-    direccion = pedido.direccion.strip()
+def enviar_codigo_confirmacion(
+    request: Request,
+    solicitud: schemas.SolicitudCodigoPedido,
+    db: Session = Depends(get_db),
+):
+    cliente_nombre = solicitud.cliente_nombre.strip()
+    telefono = solicitud.telefono.strip()
+    correo = validar_correo_formato(solicitud.correo)
+    direccion = solicitud.direccion.strip()
 
     if len(cliente_nombre) < 2:
         raise HTTPException(status_code=400, detail="Nombre de cliente inválido")
@@ -665,43 +928,140 @@ def crear_pedido(request: Request, pedido: schemas.PedidoCreate, db: Session = D
     if len(direccion) < 4:
         raise HTTPException(status_code=400, detail="Dirección de entrega inválida")
 
-    # Soporta carrito (items) o petición individual (medicamento + cantidad)
-    items_solicitados = list(pedido.items or [])
-    if not items_solicitados and pedido.medicamento and pedido.cantidad:
-        items_solicitados = [
-            schemas.ItemPedido(medicamento=pedido.medicamento, cantidad=pedido.cantidad)
-        ]
+    # Validar productos y stock antes de enviar el correo de confirmación
+    medicamentos_validados, total_estimado = validar_items_y_stock(
+        solicitud.items, solicitud.medicamento, solicitud.cantidad, db
+    )
+    items_resumen = [(med.nombre, cant) for med, cant in medicamentos_validados]
 
-    if not items_solicitados:
-        raise HTTPException(status_code=400, detail="Debes incluir al menos un medicamento en el pedido")
+    # Invalidar códigos previos sin usar para este correo
+    (
+        db.query(models.CodigoVerificacion)
+        .filter(
+            models.CodigoVerificacion.correo == correo,
+            models.CodigoVerificacion.usado == False,
+        )
+        .update({"usado": True})
+    )
 
-    # Agrupar cantidades si se repite el mismo medicamento en el carrito
-    cantidades_por_nombre = {}
-    for item in items_solicitados:
-        nombre_limpio = item.medicamento.strip()
-        if not nombre_limpio or item.cantidad <= 0:
-            raise HTTPException(status_code=400, detail="Producto o cantidad inválidos")
-        cantidades_por_nombre[nombre_limpio] = cantidades_por_nombre.get(nombre_limpio, 0) + item.cantidad
+    codigo = f"{secrets.randbelow(900000) + 100000:06d}"
+    ahora = datetime.now(timezone.utc)
+    registro_otp = models.CodigoVerificacion(
+        correo=correo,
+        telefono=telefono,
+        codigo_hash=hash_codigo_otp(correo, telefono, codigo),
+        expira_en=ahora + timedelta(minutes=OTP_EXPIRACION_MINUTOS),
+        intentos=0,
+        usado=False,
+        creado_en=ahora,
+    )
+    db.add(registro_otp)
+    db.commit()
+
+    proveedor, modo_demo = enviar_correo_codigo(
+        destinatario=correo,
+        cliente_nombre=cliente_nombre,
+        codigo=codigo,
+        total_estimado=total_estimado,
+        items_resumen=items_resumen,
+    )
+
+    respuesta = {
+        "mensaje": (
+            f"Enviamos un código de 6 dígitos a {correo}. Válido por {OTP_EXPIRACION_MINUTOS} minutos."
+            if not modo_demo
+            else f"Código generado en modo demostración (configura BREVO_API_KEY o SMTP en el servidor para envío real a {correo})."
+        ),
+        "correo": correo,
+        "expira_minutos": OTP_EXPIRACION_MINUTOS,
+        "proveedor": proveedor,
+        "modo_demo": modo_demo,
+    }
+    if modo_demo:
+        respuesta["codigo_demo"] = codigo
+    return respuesta
+
+
+@app.post("/pedidos")
+@limiter.limit("5/minute")
+def crear_pedido(request: Request, pedido: schemas.PedidoCreate, db: Session = Depends(get_db)):
+    cliente_nombre = pedido.cliente_nombre.strip()
+    telefono = pedido.telefono.strip()
+    correo = validar_correo_formato(pedido.correo)
+    codigo_ingresado = (pedido.codigo_verificacion or "").strip()
+    direccion = pedido.direccion.strip()
+
+    if len(cliente_nombre) < 2:
+        raise HTTPException(status_code=400, detail="Nombre de cliente inválido")
+    if len(telefono) < 10:
+        raise HTTPException(status_code=400, detail="Teléfono inválido (mínimo 10 caracteres)")
+    if len(direccion) < 4:
+        raise HTTPException(status_code=400, detail="Dirección de entrega inválida")
+    if not codigo_ingresado.isdigit() or len(codigo_ingresado) != 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Ingresa el código de confirmación de 6 dígitos enviado a tu correo",
+        )
+
+    # Verificar código OTP activo
+    registro_otp = (
+        db.query(models.CodigoVerificacion)
+        .filter(
+            models.CodigoVerificacion.correo == correo,
+            models.CodigoVerificacion.telefono == telefono,
+            models.CodigoVerificacion.usado == False,
+        )
+        .order_by(models.CodigoVerificacion.id.desc())
+        .first()
+    )
+
+    if not registro_otp:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay un código activo para este correo y teléfono. Solicita uno nuevo.",
+        )
+
+    ahora = datetime.now(timezone.utc)
+    expira = registro_otp.expira_en
+    if expira.tzinfo is None:
+        expira = expira.replace(tzinfo=timezone.utc)
+
+    if ahora > expira:
+        registro_otp.usado = True
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="El código de confirmación expiró. Solicita un nuevo código.",
+        )
+
+    if registro_otp.intentos >= OTP_MAX_INTENTOS:
+        registro_otp.usado = True
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="Superaste el máximo de intentos permitidos. Solicita un nuevo código.",
+        )
+
+    esperado_hash = hash_codigo_otp(correo, telefono, codigo_ingresado)
+    if not hmac.compare_digest(esperado_hash, registro_otp.codigo_hash):
+        registro_otp.intentos += 1
+        restantes = max(0, OTP_MAX_INTENTOS - registro_otp.intentos)
+        if restantes == 0:
+            registro_otp.usado = True
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Código incorrecto. Te quedan {restantes} intentos."
+                if restantes > 0
+                else "Código incorrecto y sin intentos restantes. Solicita uno nuevo."
+            ),
+        )
 
     # Validar existencia y stock de TODOS los medicamentos antes de descontar
-    medicamentos_validados = []
-    for nombre_med, cant_total in cantidades_por_nombre.items():
-        medicina_db = (
-            db.query(models.Medicamento)
-            .filter(models.Medicamento.nombre == nombre_med)
-            .first()
-        )
-        if not medicina_db:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Medicamento '{nombre_med}' no encontrado en el catálogo",
-            )
-        if medicina_db.stock < cant_total:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Stock insuficiente para {medicina_db.nombre} (disponibles: {medicina_db.stock})",
-            )
-        medicamentos_validados.append((medicina_db, cant_total))
+    medicamentos_validados, _ = validar_items_y_stock(
+        pedido.items, pedido.medicamento, pedido.cantidad, db
+    )
 
     # Descontar stock y construir el detalle del pedido
     detalle_lista = []
@@ -725,14 +1085,16 @@ def crear_pedido(request: Request, pedido: schemas.PedidoCreate, db: Session = D
         )
 
     primer_med = medicamentos_validados[0][0]
+    registro_otp.usado = True
     nuevo_pedido = models.Pedido(
         cliente_nombre=cliente_nombre,
         telefono=telefono,
+        correo=correo,
         direccion=direccion,
         detalle_productos=json.dumps(detalle_lista, ensure_ascii=False),
         total=total_pedido,
         estado="Pendiente",
-        fecha_creacion=datetime.now(timezone.utc),
+        fecha_creacion=ahora,
         cantidad=total_unidades,
         medicamento_id=primer_med.id,
     )
@@ -743,7 +1105,7 @@ def crear_pedido(request: Request, pedido: schemas.PedidoCreate, db: Session = D
     pedido_serializado = serializar_pedido(nuevo_pedido)
 
     return {
-        "mensaje": "Pedido creado con éxito",
+        "mensaje": "Pedido verificado y creado con éxito",
         "id": nuevo_pedido.id,
         "orden_id": nuevo_pedido.id,
         "total": nuevo_pedido.total,

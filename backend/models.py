@@ -27,6 +27,7 @@ class Pedido(Base):
     id = Column(Integer, primary_key=True, index=True)
     cliente_nombre = Column(String, nullable=False, default="Cliente")
     telefono = Column(String, nullable=False)
+    correo = Column(String, nullable=False, default="")
     direccion = Column(String, nullable=False, default="Sin dirección")
     detalle_productos = Column(Text, nullable=False, default="[]")
     total = Column(Float, nullable=False, default=0.0)
@@ -43,6 +44,24 @@ class Pedido(Base):
     medicamento_id = Column(Integer, ForeignKey("medicamentos.id"), nullable=True)
 
     medicamento = relationship("Medicamento", back_populates="pedidos")
+
+
+class CodigoVerificacion(Base):
+    __tablename__ = "codigos_verificacion"
+
+    id = Column(Integer, primary_key=True, index=True)
+    correo = Column(String, nullable=False, index=True)
+    telefono = Column(String, nullable=False, index=True)
+    codigo_hash = Column(String, nullable=False)
+    expira_en = Column(DateTime(timezone=True), nullable=False)
+    intentos = Column(Integer, nullable=False, default=0)
+    usado = Column(Boolean, nullable=False, default=False)
+    creado_en = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 # ---- TABLA PARA EL LOGIN ----
