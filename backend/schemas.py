@@ -8,6 +8,20 @@ class MedicamentoNuevo(BaseModel):
     precio: float
     stock: int
     es_controlado: bool = False
+    categoria: str = "Analgésicos y Dolor"
+    presentacion: str = "Caja estándar"
+    descripcion: str = ""
+    imagen_url: str = ""
+
+
+class MedicamentoUpdate(BaseModel):
+    stock: Optional[int] = Field(default=None, ge=0)
+    precio: Optional[float] = Field(default=None, gt=0)
+    categoria: Optional[str] = None
+    presentacion: Optional[str] = None
+    descripcion: Optional[str] = None
+    imagen_url: Optional[str] = None
+    es_controlado: Optional[bool] = None
 
 
 class ItemPedido(BaseModel):

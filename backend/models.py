@@ -13,6 +13,10 @@ class Medicamento(Base):
     precio = Column(Float)
     stock = Column(Integer)
     es_controlado = Column(Boolean, default=False)
+    categoria = Column(String, nullable=False, default="Analgésicos y Dolor", index=True)
+    presentacion = Column(String, nullable=False, default="Caja estándar")
+    descripcion = Column(Text, nullable=False, default="")
+    imagen_url = Column(String, nullable=False, default="")
 
     pedidos = relationship("Pedido", back_populates="medicamento")
 

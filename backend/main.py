@@ -81,8 +81,364 @@ def asegurar_columnas_pedidos():
                 )
 
 
+def asegurar_columnas_medicamentos():
+    """
+    Agrega de forma segura columnas de catálogo enriquecido a la tabla `medicamentos`
+    si ya existía previamente en PostgreSQL o SQLite.
+    """
+    inspector = inspect(engine)
+    if "medicamentos" not in inspector.get_table_names():
+        return
+
+    columnas_existentes = {col["name"] for col in inspector.get_columns("medicamentos")}
+    columnas_requeridas = [
+        ("categoria", "VARCHAR DEFAULT 'Analgésicos y Dolor'"),
+        ("presentacion", "VARCHAR DEFAULT 'Caja estándar'"),
+        ("descripcion", "TEXT DEFAULT ''"),
+        ("imagen_url", "VARCHAR DEFAULT ''"),
+    ]
+
+    with engine.begin() as conn:
+        for nombre_col, definicion in columnas_requeridas:
+            if nombre_col not in columnas_existentes:
+                conn.execute(
+                    text(f"ALTER TABLE medicamentos ADD COLUMN {nombre_col} {definicion}")
+                )
+
+
 models.Base.metadata.create_all(bind=engine)
 asegurar_columnas_pedidos()
+asegurar_columnas_medicamentos()
+
+
+CATALOGO_INICIAL = [
+    # Analgésicos y Dolor
+    {
+        "nombre": "Paracetamol",
+        "precio": 32.0,
+        "stock": 120,
+        "es_controlado": False,
+        "categoria": "Analgésicos y Dolor",
+        "presentacion": "Caja con 20 tabletas · 500 mg",
+        "descripcion": "Alivio eficaz del dolor leve a moderado y control rápido de la fiebre.",
+        "imagen_url": "/images/cat-analgesicos.jpg",
+    },
+    {
+        "nombre": "Aspirina",
+        "precio": 54.0,
+        "stock": 95,
+        "es_controlado": False,
+        "categoria": "Analgésicos y Dolor",
+        "presentacion": "Caja con 40 tabletas · 500 mg",
+        "descripcion": "Ácido acetilsalicílico auxiliar en dolor de cabeza, malestar muscular y fiebre.",
+        "imagen_url": "/images/cat-analgesicos.jpg",
+    },
+    {
+        "nombre": "Ibuprofeno 400 mg",
+        "precio": 48.0,
+        "stock": 110,
+        "es_controlado": False,
+        "categoria": "Analgésicos y Dolor",
+        "presentacion": "Caja con 20 cápsulas blandas",
+        "descripcion": "Antiinflamatorio y analgésico de rápida absorción para dolores musculares y articulares.",
+        "imagen_url": "/images/cat-analgesicos.jpg",
+    },
+    {
+        "nombre": "Naproxeno Sódico 550 mg",
+        "precio": 76.0,
+        "stock": 85,
+        "es_controlado": False,
+        "categoria": "Analgésicos y Dolor",
+        "presentacion": "Caja con 12 tabletas",
+        "descripcion": "Auxiliar en el alivio de inflamación, dolor muscular, lumbar y cólicos.",
+        "imagen_url": "/images/cat-analgesicos.jpg",
+    },
+    {
+        "nombre": "Ketorolaco 10 mg",
+        "precio": 65.0,
+        "stock": 70,
+        "es_controlado": False,
+        "categoria": "Analgésicos y Dolor",
+        "presentacion": "Caja con 10 tabletas",
+        "descripcion": "Analgésico de acción rápida indicado para alivio a corto plazo del dolor agudo.",
+        "imagen_url": "/images/cat-analgesicos.jpg",
+    },
+    # Antibióticos (Receta)
+    {
+        "nombre": "Amoxicilina",
+        "precio": 125.0,
+        "stock": 65,
+        "es_controlado": True,
+        "categoria": "Antibióticos",
+        "presentacion": "Caja con 12 cápsulas · 500 mg",
+        "descripcion": "Antibiótico de amplio espectro. Su venta requiere receta médica vigente.",
+        "imagen_url": "/images/cat-antibioticos.jpg",
+    },
+    {
+        "nombre": "Azitromicina 500 mg",
+        "precio": 168.0,
+        "stock": 55,
+        "es_controlado": True,
+        "categoria": "Antibióticos",
+        "presentacion": "Caja con 3 tabletas",
+        "descripcion": "Antibiótico macrólido para infecciones respiratorias. Requiere receta médica.",
+        "imagen_url": "/images/cat-antibioticos.jpg",
+    },
+    {
+        "nombre": "Ciprofloxacino 500 mg",
+        "precio": 142.0,
+        "stock": 50,
+        "es_controlado": True,
+        "categoria": "Antibióticos",
+        "presentacion": "Caja con 12 tabletas",
+        "descripcion": "Antibiótico de amplio espectro. Venta exclusiva bajo prescripción médica.",
+        "imagen_url": "/images/cat-antibioticos.jpg",
+    },
+    # Gripe y Alergias
+    {
+        "nombre": "Loratadina 10 mg",
+        "precio": 42.0,
+        "stock": 130,
+        "es_controlado": False,
+        "categoria": "Gripe y Alergias",
+        "presentacion": "Caja con 20 tabletas",
+        "descripcion": "Antihistamínico 24 horas que alivia estornudos, escurrimiento y alergias sin sueño.",
+        "imagen_url": "/images/cat-gripe.jpg",
+    },
+    {
+        "nombre": "Antigripal Día y Noche",
+        "precio": 98.0,
+        "stock": 90,
+        "es_controlado": False,
+        "categoria": "Gripe y Alergias",
+        "presentacion": "Caja con 24 cápsulas",
+        "descripcion": "Fórmula multisíntoma contra congestión nasal, cuerpo cortado, dolor y fiebre.",
+        "imagen_url": "/images/cat-gripe.jpg",
+    },
+    {
+        "nombre": "Jarabe Ambroxol 30 mg",
+        "precio": 74.0,
+        "stock": 80,
+        "es_controlado": False,
+        "categoria": "Gripe y Alergias",
+        "presentacion": "Frasco con 120 ml + vaso dosificador",
+        "descripcion": "Mucolítico y expectorante auxiliar en el alivio de tos con flemas.",
+        "imagen_url": "/images/cat-gripe.jpg",
+    },
+    {
+        "nombre": "Spray Nasal Solución Salina",
+        "precio": 89.0,
+        "stock": 75,
+        "es_controlado": False,
+        "categoria": "Gripe y Alergias",
+        "presentacion": "Frasco atomizador · 50 ml",
+        "descripcion": "Descongestionante isotónico suave para hidratación e higiene nasal diaria.",
+        "imagen_url": "/images/cat-gripe.jpg",
+    },
+    # Salud Digestiva
+    {
+        "nombre": "Omeprazol 20 mg",
+        "precio": 58.0,
+        "stock": 115,
+        "es_controlado": False,
+        "categoria": "Salud Digestiva",
+        "presentacion": "Caja con 14 cápsulas",
+        "descripcion": "Auxiliar en el tratamiento de la acidez estomacal frecuente y reflujo gastroesofágico.",
+        "imagen_url": "/images/cat-digestivo.jpg",
+    },
+    {
+        "nombre": "Subsalicilato de Bismuto",
+        "precio": 112.0,
+        "stock": 85,
+        "es_controlado": False,
+        "categoria": "Salud Digestiva",
+        "presentacion": "Frasco suspensión · 236 ml",
+        "descripcion": "Alivio rápido para indigestión, acidez, náuseas y malestar estomacal.",
+        "imagen_url": "/images/cat-digestivo.jpg",
+    },
+    {
+        "nombre": "Probióticos Flora Intestinal",
+        "precio": 189.0,
+        "stock": 70,
+        "es_controlado": False,
+        "categoria": "Salud Digestiva",
+        "presentacion": "Caja con 10 ampolletas bebibles",
+        "descripcion": "Ayuda a regenerar y mantener el equilibrio natural de la microbiota intestinal.",
+        "imagen_url": "/images/cat-digestivo.jpg",
+    },
+    # Vitaminas y Bienestar
+    {
+        "nombre": "Vitamina C + Zinc Efervescente",
+        "precio": 118.0,
+        "stock": 140,
+        "es_controlado": False,
+        "categoria": "Vitaminas y Bienestar",
+        "presentacion": "Tubo con 20 tabletas · Sabor naranja",
+        "descripcion": "Suplemento antioxidante que fortalece el sistema inmunológico diariamente.",
+        "imagen_url": "/images/cat-vitaminas.jpg",
+    },
+    {
+        "nombre": "Complejo B + Ácido Fólico",
+        "precio": 94.0,
+        "stock": 105,
+        "es_controlado": False,
+        "categoria": "Vitaminas y Bienestar",
+        "presentacion": "Frasco con 60 tabletas",
+        "descripcion": "Contribuye al metabolismo energético y al buen funcionamiento del sistema nervioso.",
+        "imagen_url": "/images/cat-vitaminas.jpg",
+    },
+    {
+        "nombre": "Vitamina D3 4000 UI",
+        "precio": 145.0,
+        "stock": 90,
+        "es_controlado": False,
+        "categoria": "Vitaminas y Bienestar",
+        "presentacion": "Frasco con 60 cápsulas blandas",
+        "descripcion": "Apoya la absorción de calcio, la salud ósea y el bienestar inmunológico.",
+        "imagen_url": "/images/cat-vitaminas.jpg",
+    },
+    {
+        "nombre": "Electrolitos Orales Manzana",
+        "precio": 29.0,
+        "stock": 150,
+        "es_controlado": False,
+        "categoria": "Vitaminas y Bienestar",
+        "presentacion": "Botella 625 ml lista para beber",
+        "descripcion": "Hidratación instantánea con glucosa y minerales esenciales para recuperar energía.",
+        "imagen_url": "/images/cat-vitaminas.jpg",
+    },
+    # Dermocosmética y Cuidado
+    {
+        "nombre": "Protector Solar Facial FPS 50+",
+        "precio": 285.0,
+        "stock": 65,
+        "es_controlado": False,
+        "categoria": "Dermocosmética",
+        "presentacion": "Tubo 50 ml · Toque seco",
+        "descripcion": "Muy alta protección dermatológica UVA/UVB sin brillo ni sensación grasosa.",
+        "imagen_url": "/images/cat-cuidado.jpg",
+    },
+    {
+        "nombre": "Crema Hidratante Reparadora",
+        "precio": 215.0,
+        "stock": 75,
+        "es_controlado": False,
+        "categoria": "Dermocosmética",
+        "presentacion": "Envase con dispensador · 400 ml",
+        "descripcion": "Fórmula con ceramidas y ácido hialurónico ideal para piel seca y sensible.",
+        "imagen_url": "/images/cat-cuidado.jpg",
+    },
+    {
+        "nombre": "Agua Micelar Dermolimpiadora",
+        "precio": 169.0,
+        "stock": 80,
+        "es_controlado": False,
+        "categoria": "Dermocosmética",
+        "presentacion": "Frasco 400 ml · Sin fragancia",
+        "descripcion": "Limpia impurezas y desmaquilla suavemente respetando el pH natural de la piel.",
+        "imagen_url": "/images/cat-cuidado.jpg",
+    },
+    # Primeros Auxilios
+    {
+        "nombre": "Termómetro Digital Clínico",
+        "precio": 115.0,
+        "stock": 60,
+        "es_controlado": False,
+        "categoria": "Primeros Auxilios",
+        "presentacion": "1 pieza · Punta flexible y alarma",
+        "descripcion": "Lectura clínica precisa en 60 segundos con memoria de última medición.",
+        "imagen_url": "/images/cat-auxilios.jpg",
+    },
+    {
+        "nombre": "Botiquín Esencial Curitas y Gasas",
+        "precio": 138.0,
+        "stock": 85,
+        "es_controlado": False,
+        "categoria": "Primeros Auxilios",
+        "presentacion": "Estuche con 40 piezas estériles",
+        "descripcion": "Incluye gasas estériles, vendas elásticas, cinta microporosa y curitas surtidas.",
+        "imagen_url": "/images/cat-auxilios.jpg",
+    },
+    {
+        "nombre": "Alcohol Etílico 70° Antiséptico",
+        "precio": 38.0,
+        "stock": 130,
+        "es_controlado": False,
+        "categoria": "Primeros Auxilios",
+        "presentacion": "Botella con 500 ml",
+        "descripcion": "Antiséptico tópico indispensable para la desinfección y botiquín familiar.",
+        "imagen_url": "/images/cat-auxilios.jpg",
+    },
+    # Bebé y Maternidad
+    {
+        "nombre": "Suero Oral Pediátrico Fresa",
+        "precio": 34.0,
+        "stock": 110,
+        "es_controlado": False,
+        "categoria": "Bebé y Maternidad",
+        "presentacion": "Botella 500 ml · Sabor fresa",
+        "descripcion": "Solución de rehidratación oral balanceada especialmente pensada para niños.",
+        "imagen_url": "/images/cat-bebe.jpg",
+    },
+    {
+        "nombre": "Pomada Protectora para Rozaduras",
+        "precio": 129.0,
+        "stock": 75,
+        "es_controlado": False,
+        "categoria": "Bebé y Maternidad",
+        "presentacion": "Tubo 110 g · Con óxido de zinc",
+        "descripcion": "Forma una barrera protectora hipoalergénica que calma y cuida la piel del bebé.",
+        "imagen_url": "/images/cat-bebe.jpg",
+    },
+]
+
+
+def poblar_y_reabastecer_catalogo(db: Session):
+    """
+    Inserta productos faltantes del catálogo inicial, completa metadatos vacíos
+    y reabastece stock cuando está por debajo del stock recomendado.
+    """
+    existentes = db.query(models.Medicamento).all()
+    mapa_por_nombre = {}
+    for med in existentes:
+        nombre_limpio = (med.nombre or "").strip()
+        if med.nombre != nombre_limpio and nombre_limpio not in mapa_por_nombre:
+            med.nombre = nombre_limpio
+        mapa_por_nombre[nombre_limpio.lower()] = med
+
+    agregados = 0
+    actualizados = 0
+
+    for item in CATALOGO_INICIAL:
+        clave = item["nombre"].strip().lower()
+        med_db = mapa_por_nombre.get(clave)
+        if med_db is None:
+            nuevo = models.Medicamento(**item)
+            db.add(nuevo)
+            mapa_por_nombre[clave] = nuevo
+            agregados += 1
+        else:
+            cambio = False
+            if (med_db.stock or 0) < item["stock"]:
+                med_db.stock = item["stock"]
+                cambio = True
+            if not med_db.categoria or med_db.categoria == "General":
+                med_db.categoria = item["categoria"]
+                cambio = True
+            if not med_db.presentacion or med_db.presentacion == "Caja estándar":
+                med_db.presentacion = item["presentacion"]
+                cambio = True
+            if not med_db.descripcion:
+                med_db.descripcion = item["descripcion"]
+                cambio = True
+            if not med_db.imagen_url:
+                med_db.imagen_url = item["imagen_url"]
+                cambio = True
+            if cambio:
+                actualizados += 1
+
+    db.commit()
+    return agregados, actualizados
 
 
 def get_db():
@@ -222,26 +578,76 @@ def get_medicamentos(db: Session = Depends(get_db)):
 # ---- ENDPOINT PROTEGIDO: AGREGAR MEDICAMENTO ----
 @app.post("/medicamentos", dependencies=[Depends(get_usuario_actual)])
 def agregar_medicamento(med: schemas.MedicamentoNuevo, db: Session = Depends(get_db)):
-    if db.query(models.Medicamento).filter(models.Medicamento.nombre == med.nombre).first():
+    nombre_limpio = med.nombre.strip()
+    if db.query(models.Medicamento).filter(models.Medicamento.nombre == nombre_limpio).first():
         raise HTTPException(status_code=400, detail="Este medicamento ya existe en el catálogo")
 
     nuevo_med = models.Medicamento(
-        nombre=med.nombre, precio=med.precio, stock=med.stock, es_controlado=med.es_controlado
+        nombre=nombre_limpio,
+        precio=med.precio,
+        stock=med.stock,
+        es_controlado=med.es_controlado,
+        categoria=(med.categoria or "Analgésicos y Dolor").strip(),
+        presentacion=(med.presentacion or "Caja estándar").strip(),
+        descripcion=(med.descripcion or "").strip(),
+        imagen_url=(med.imagen_url or "").strip(),
     )
     db.add(nuevo_med)
     db.commit()
-    return {"mensaje": f"{med.nombre} agregado exitosamente al inventario"}
+    db.refresh(nuevo_med)
+    return {
+        "mensaje": f"{nuevo_med.nombre} agregado exitosamente al inventario",
+        "medicamento": nuevo_med,
+    }
+
+
+# ---- ENDPOINT PROTEGIDO: ACTUALIZAR STOCK / DATOS DE MEDICAMENTO ----
+@app.patch("/medicamentos/{medicamento_id}", dependencies=[Depends(get_usuario_actual)])
+def actualizar_medicamento(
+    medicamento_id: int,
+    datos: schemas.MedicamentoUpdate,
+    db: Session = Depends(get_db),
+):
+    med_db = db.query(models.Medicamento).filter(models.Medicamento.id == medicamento_id).first()
+    if not med_db:
+        raise HTTPException(status_code=404, detail="Medicamento no encontrado")
+
+    if datos.stock is not None:
+        med_db.stock = datos.stock
+    if datos.precio is not None:
+        med_db.precio = datos.precio
+    if datos.categoria is not None:
+        med_db.categoria = datos.categoria.strip()
+    if datos.presentacion is not None:
+        med_db.presentacion = datos.presentacion.strip()
+    if datos.descripcion is not None:
+        med_db.descripcion = datos.descripcion.strip()
+    if datos.imagen_url is not None:
+        med_db.imagen_url = datos.imagen_url.strip()
+    if datos.es_controlado is not None:
+        med_db.es_controlado = datos.es_controlado
+
+    db.commit()
+    db.refresh(med_db)
+    return {
+        "mensaje": f"Inventario actualizado: {med_db.nombre} (Stock: {med_db.stock})",
+        "medicamento": med_db,
+    }
 
 
 @app.get("/seed")
 def llenar_base_de_datos(db: Session = Depends(get_db)):
-    if db.query(models.Medicamento).first():
-        return {"mensaje": "La base de datos ya tiene medicamentos"}
-
-    db.add(models.Medicamento(nombre="Aspirina", precio=50.0, stock=50, es_controlado=False))
-    db.add(models.Medicamento(nombre="Amoxicilina", precio=120.0, stock=15, es_controlado=True))
-    db.commit()
-    return {"mensaje": "Medicamentos iniciales agregados exitosamente"}
+    agregados, actualizados = poblar_y_reabastecer_catalogo(db)
+    total = db.query(models.Medicamento).count()
+    return {
+        "mensaje": (
+            f"Catálogo sincronizado: {agregados} productos nuevos agregados, "
+            f"{actualizados} productos reabastecidos/actualizados (total: {total})."
+        ),
+        "agregados": agregados,
+        "actualizados": actualizados,
+        "total": total,
+    }
 
 
 # ---- ENDPOINTS DE PEDIDOS ----
